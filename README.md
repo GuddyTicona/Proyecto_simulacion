@@ -42,7 +42,7 @@ ________________________________________
 Instalación y Ejecución
 Pasos de Instalación
 1.	Clonar o descargar el proyecto:
-"git clone <URL_DEL_REPOSITORIO>"
+"git clone <https://github.com/GuddyTicona/Proyecto_simulacion.git>"
 2.	Crear un entorno virtual (opcional):
 "python -m venv venv"
 Activar entorno:
