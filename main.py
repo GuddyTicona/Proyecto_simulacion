@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt
 from ui.tab_generadores import TabGeneradores
 from ui.tab_pruebas import TabPruebas
 from ui.tab_variables import TabVariables  
+from ui.tab_automata_celular import TabAutomataCelular
 
 
 # ---------------- Ventana de Bienvenida Mejorada ---------------- #
@@ -96,12 +97,12 @@ class MainWindow(QMainWindow):
         self.generadores_tab = TabGeneradores()
         self.pruebas_tab = TabPruebas(self.generadores_tab)
         self.variables_tab = TabVariables()
-
+        self.automata_tab = TabAutomataCelular()
         # Agregar pestañas
         self.tabs.addTab(self.generadores_tab, "Generadores")
         self.tabs.addTab(self.pruebas_tab, "Pruebas Estadísticas")
         self.tabs.addTab(self.variables_tab, "Variables Aleatorias")
-
+        self.tabs.addTab(self.automata_tab, "Autómata Celular")
         # Conectar resultados
         self.pruebas_tab.resultados_generados.connect(self.variables_tab.mostrar_resultados)
 

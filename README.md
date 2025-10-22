@@ -103,9 +103,97 @@ Visualización de Resultados
 •	Resultados numéricos en tablas correspondientes.
 •	Gráficos de pruebas.
 •	Aplicacion en los graficos con un mensaje oculto.
+3. La generecion de los numeros pseudoaleatorios permite realizar las distribuciones cuales son:
+•   Distribuciones continuas
+•   Distribuciones discretas
+Para el funcionamiento insertar los datos al seleccionar las distribuciones de continua o discreta.
+seleccionar en distribucion continua:
+Uniforme Continua U(a,b)
+•   a = mínimo
+•   b= maximo
+
+Exponencial Exp(λ)
+•   λ = tasa o velocidad del evento
+Normal N(μ,σ) (método Box-Muller)
+•   μ = promedio
+•   σ = desviación estándar
+ Gamma Γ(α,β)
+•   α = forma
+•   β = escala
+Weibull (α,β,γ)
+•   α = forma
+•   β = escala
+•   γ = desplazamiento opcional
+En ellos se genera al insertar los datos, la tabla y el grafico correspondiente del histograma.
+seleccionar en distribucion discreta:
+Uniforme Discreta U(a,b)
+llenar los siguientes datos
+•   a = numero menor
+•   b = numero mayor (si es menor el sistema no permite)
+Bernoulli(p)
+ingresar dato
+•   p = probabilidad de éxito (0 a 1)
+Binomial(n, p)
+•   n = número de intentos
+•   p = probabilidad de éxito
+Poisson(λ)
+λ = eventos esperados por intervalo
+En ellos se genera al insertar los datos, la tabla y el grafico correspondiente del histograma.
+4. Simulación por Autómata Celular (Conway y COVID-19)
+
+Esta pestaña permite simular comportamientos complejos en una cuadrícula, donde cada celda representa un "individuo" o "célula" que cambia de estado con el tiempo según reglas definidas.
+
+Modo Conway (Juego de la Vida)
+
+Simulación clásica basada en reglas B3/S23:
+
+Nace una célula si tiene exactamente 3 vecinas vivas (B3)
+
+Sobrevive si tiene 2 o 3 vecinas vivas (S23)
+
+Muere en cualquier otro caso
+
+Incluye:
+
+Patrones ya listos (presets): Glider, Blinker, Glider Gun, toad, beacon.
+
+Evolución automática paso a paso
+
+Detección de extinción, estabilidad o repetición de ciclos
+
+Posibilidad de tamaño personalizado de la cuadrícula
+
+- Modo COVID-19 (modelo epidemiológico simple)
+
+Cada celda representa una persona con estado:
+
+•   S	Susceptible (sano, puede contagiarse)
+•   I	Infectado (puede contagiar a otros)
+•   R	Recuperado (no se vuelve a infectar)
+•   V	Vacunado (protegido desde el inicio)
+
+Parámetros configurables por el usuario:
+
+•   % inicial de infectados
+
+•   % inicial de vacunados
+
+•   p_infect: probabilidad de contagio
+
+•   p_move: probabilidad de movimiento entre celdas
+
+•   t_recuperación: tiempo que tarda en pasar de I → R
+
+Incluye:
+
+Movimiento aleatorio dinámico
+
+Gráfico en tiempo real mostrando cómo evoluciona S, I, R y V
+
+Esta simulación permite visualizar de manera interactiva cómo se comporta un sistema vivo o una epidemia, en función de los parámetros elegidos.
 Salir del Sistema
 •	Hacer clic en Salir en la esquina superior derecha.
-3. Descargar el proyecto del siguiente repositorio
+4. Descargar el proyecto del siguiente repositorio
 
 Bitácora de Avances por Clase
 
@@ -120,6 +208,12 @@ Se incorporaron generadores LCG, Numpy RNG y Random (builtin). Se estableció la
 
 Clase 4 – Pruebas Estadísticas e Interfaz Final:
 Se implementaron las pruebas de Medias, Varianza y Uniformidad (Chi-cuadrado) con configuración de nivel de significancia (α) y número de intervalos (k). Se completó la interfaz, incluyendo ventana de bienvenida, pestañas separadas, botón Salir y mensaje oculto. Los resultados se muestran en tablas y gráficos.
+Clase 5 – Variables Aleatorias (Distribuciones):
+Se implementó la pestaña de Variables Aleatorias, agregando distribuciones continuas (Uniforme, Exponencial, Normal, Gamma, Weibull) y discretas (Uniforme Discreta, Bernoulli, Binomial, Poisson). Las distribuciones utilizan los números Ri generados en la pestaña anterior y muestran valores generados, parámetros, media y varianza teórica.
+
+Clase 6 – Simulación con Autómata Celular (Conway y COVID-19):
+Se añadió una pestaña independiente para simular autómatas celulares.
+Incluye el Juego de la Vida de Conway con presets (Glider, Blinker, etc.), modo automático y detección de ciclos/extinción, y un modo COVID-19 con estados S, I, R, V, parámetros configurables y gráfico dinámico de evolución epidemiológica.
 ## Capturas de Pantalla
 
 **Ventana de Bienvenida**  
@@ -134,5 +228,13 @@ Se implementaron las pruebas de Medias, Varianza y Uniformidad (Chi-cuadrado) co
 **Resultados / Gráficos**  
 ![Resultados](capturas/resultados.png)
 
+**Distribucion continua**
+![Resultados](capturas/distribucion_continua.png)
+**Distribucion discreta**
+![Resultados](capturas/discreta.png)
+**Automata celular juego de la vida conway**
+![Resultados](capturas/conway.png)
+**Automata celular covid**
+![Resultados](capturas/covid.png)
 **Mensaje Oculto**  
 ![Mensaje](capturas/mensaje.png)
