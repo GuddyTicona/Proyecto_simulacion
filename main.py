@@ -11,7 +11,7 @@ from ui.tab_generadores import TabGeneradores
 from ui.tab_pruebas import TabPruebas
 from ui.tab_variables import TabVariables  
 from ui.tab_automata_celular import TabAutomataCelular
-from ui.manual_usuario import ManualUsuario  # ✅ NUEVO IMPORT
+from ui.manual_usuario import ManualUsuario  
 
 class WelcomeWindow(QWidget):
     def __init__(self):
@@ -110,7 +110,7 @@ class MainWindow(QMainWindow):
         self.pruebas_tab = TabPruebas(self.generadores_tab)
         self.variables_tab = TabVariables()
         self.automata_tab = TabAutomataCelular()
-        self.manual_tab = ManualUsuario()  # ✅ NUEVA PESTAÑA
+        self.manual_tab = ManualUsuario()  # 
 
         # Agregar pestañas
         self.tabs.addTab(self.generadores_tab, "🎲 Generadores")
@@ -147,7 +147,7 @@ class MainWindow(QMainWindow):
             self,
             "👋 ¡Hasta Pronto!",
             "¿Estás seguro de que quieres salir?\n\n"
-            "¡Gracias por usar nuestro Sistema de Simulación! 🌟\n"
+            "¡Gracias por usar nuestro Sistema de Simulación! \n"
             "Esperamos verte pronto de nuevo. 😊",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No
