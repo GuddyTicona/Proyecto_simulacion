@@ -1,7 +1,7 @@
 import sys
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QLabel,
-    QPushButton, QFrame
+    QPushButton, QFrame, QMessageBox
 )
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
@@ -11,7 +11,7 @@ from ui.tab_generadores import TabGeneradores
 from ui.tab_pruebas import TabPruebas
 from ui.tab_variables import TabVariables  
 from ui.tab_automata_celular import TabAutomataCelular
-
+from ui.manual_usuario import ManualUsuario  # ✅ NUEVO IMPORT
 
 class WelcomeWindow(QWidget):
     def __init__(self):
@@ -35,10 +35,10 @@ class WelcomeWindow(QWidget):
         box = QFrame()
         box.setStyleSheet("""
             QFrame {
-                background-color: #dfe6e9;  /* caja clara */
+                background-color: #dfe6e9;
                 border-radius: 15px;
                 padding: 30px;
-                border: 2px solid #0984e3;  /* borde azul */
+                border: 2px solid #0984e3;
             }
         """)
         box_layout = QVBoxLayout(box)
@@ -74,29 +74,50 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("🎲 Sistema de Números Pseudoaleatorios 🎲")
-        self.resize(1000, 700)
-        self.setMinimumSize(800, 600)
+        self.resize(1200, 800)  #
+        self.setMinimumSize(900, 650)
 
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # Diseño claro de pestañas
+        # Diseño de pestañas actualizado
         self.tabs.setStyleSheet("""
-            QTabWidget::pane { border: 1px solid #0984e3; top:-1px; background: #dfe6e9; }
-            QTabBar::tab { background: #74b9ff; padding: 10px; border-top-left-radius: 8px; border-top-right-radius: 8px; color: #2d3436; }
-            QTabBar::tab:selected { background: #0984e3; color: white; font-weight: bold; }
+            QTabWidget::pane { 
+                border: 1px solid #0984e3; 
+                top:-1px; 
+                background: #dfe6e9; 
+            }
+            QTabBar::tab { 
+                background: #74b9ff; 
+                padding: 10px 15px; 
+                border-top-left-radius: 8px; 
+                border-top-right-radius: 8px; 
+                color: #2d3436; 
+                margin-right: 2px;
+                font-weight: bold;
+            }
+            QTabBar::tab:selected { 
+                background: #0984e3; 
+                color: white; 
+            }
+            QTabBar::tab:hover {
+                background: #3498db;
+            }
         """)
 
-        # Pestañas
+      
         self.generadores_tab = TabGeneradores()
         self.pruebas_tab = TabPruebas(self.generadores_tab)
         self.variables_tab = TabVariables()
         self.automata_tab = TabAutomataCelular()
+        self.manual_tab = ManualUsuario()  # ✅ NUEVA PESTAÑA
 
-        self.tabs.addTab(self.generadores_tab, "Generadores")
-        self.tabs.addTab(self.pruebas_tab, "Pruebas Estadísticas")
-        self.tabs.addTab(self.variables_tab, "Variables Aleatorias")
-        self.tabs.addTab(self.automata_tab, "Autómata Celular")
+        # Agregar pestañas
+        self.tabs.addTab(self.generadores_tab, "🎲 Generadores")
+        self.tabs.addTab(self.pruebas_tab, "📊 Pruebas Estadísticas")
+        self.tabs.addTab(self.variables_tab, "📈 Variables Aleatorias")
+        self.tabs.addTab(self.automata_tab, "🔬 Autómata Celular")
+        self.tabs.addTab(self.manual_tab, "📚 Manual de Usuario")  # ✅ NUEVA PESTAÑA
 
         self.pruebas_tab.resultados_generados.connect(self.variables_tab.mostrar_resultados)
 
@@ -114,8 +135,57 @@ class MainWindow(QMainWindow):
                 background-color: #d35400;
             }
         """)
-        self.btn_exit.clicked.connect(self.close)
+        self.btn_exit.clicked.connect(self.salir_con_confirmacion)
         self.tabs.setCornerWidget(self.btn_exit, Qt.Corner.TopRightCorner)
+        
+        # ✅ Mostrar mensaje de bienvenida con opción al manual
+        self.mostrar_bienvenida()
+
+    def salir_con_confirmacion(self):
+        """Salir con mensaje de confirmación bonito"""
+        reply = QMessageBox.question(
+            self,
+            "👋 ¡Hasta Pronto!",
+            "¿Estás seguro de que quieres salir?\n\n"
+            "¡Gracias por usar nuestro Sistema de Simulación! 🌟\n"
+            "Esperamos verte pronto de nuevo. 😊",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self.close()
+
+    def mostrar_bienvenida(self):
+        """Mostrar mensaje de bienvenida al iniciar"""
+        from PyQt6.QtCore import QTimer
+        
+        QTimer.singleShot(500, self._mostrar_bienvenida_delay)
+
+    def _mostrar_bienvenida_delay(self):
+        """Muestra bienvenida después de que la ventana esté cargada"""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("🌟 ¡Bienvenido al Sistema de Simulación!")
+        msg.setText("""
+        <h3>🎯 Sistema Integral de Simulación</h3>
+        
+        <p><b>🎲 Generadores:</b> Crea números pseudoaleatorios</p>
+        <p><b>📊 Pruebas:</b> Valida la calidad de las secuencias</p>
+        <p><b>📈 Variables:</b> Simula distribuciones probabilísticas</p>
+        <p><b>🔬 Autómatas:</b> Modela sistemas complejos</p>
+        <p><b>📚 Manual:</b> Consulta ayuda completa integrada</p>
+        
+        <p>¿Necesitas ayuda para comenzar?</p>
+        """)
+        
+        btn_manual = msg.addButton("📚 Ir al Manual", QMessageBox.ButtonRole.ActionRole)
+        btn_empezar = msg.addButton("Comenzar a Explorar", QMessageBox.ButtonRole.AcceptRole)
+        msg.setDefaultButton(btn_empezar)
+        
+        msg.exec()
+        
+        if msg.clickedButton() == btn_manual:
+            self.tabs.setCurrentIndex(4)  # Cambiar a pestaña manual
 
 
 if __name__ == "__main__":
@@ -125,6 +195,8 @@ if __name__ == "__main__":
 
     welcome = WelcomeWindow()
     main_window = MainWindow()
+    
     welcome.btn_enter.clicked.connect(lambda: (main_window.show(), welcome.close()))
     welcome.show()
+    
     sys.exit(app.exec())
