@@ -1,17 +1,17 @@
 # ui/tab_automata_celular.py
 """
-Autómata Celular (Conway) + Modo COVID-19 - Tab independiente
-Clase: TabAutomataCelular
+Autómata Celular 
 
-Modo Conway: comportamiento clásico B3/S23 (ya existente).
-Modo COVID-19: autómata epidemiológico simple con movilidad y estados S/I/R/V,
-    controles para probabilidad de contagio, movilidad, recuperación, % vacunados,
-    y gráfica dinámica de evolución.
+Tres modos completos:
+1. CONWAY 
+2. UNIDIMENSIONALES - Reglas elementales 
+3. COVID-19 - Modelo epidemiológico
 """
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSpinBox, QPushButton,
     QTableWidget, QTableWidgetItem, QSlider, QCheckBox, QGroupBox, QLineEdit,
-    QFileDialog, QMessageBox, QComboBox, QFormLayout, QDoubleSpinBox
+    QFileDialog, QMessageBox, QComboBox, QFormLayout, QDoubleSpinBox,
+    QTabWidget
 )
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QBrush
@@ -29,7 +29,12 @@ from matplotlib.figure import Figure
 class TabAutomataCelular(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
-        # defaults (Conway)
+        
+        # =========================================================================
+        # CONFIGURACIÓN INICIAL - TRES MODOS
+        # =========================================================================
+        
+        # CONWAY (Bidimensional)
         self._n = 20
         self._cell_alive_color = QColor(0, 0, 0)  # negro para vivo (estilo clásico)
         self._cell_dead_color = QColor(255, 255, 255)  # blanco para muerto
@@ -39,49 +44,80 @@ class TabAutomataCelular(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._on_timer_tick)
 
-        # Conway state
-        self._state = []  # used for Conway (0/1)
+        # Estado Conway
+        self._state = []  # 0/1 para Conway
         self._history_hashes = []
         self._history_len = 80
         self.birth_set = {3}
         self.survive_set = {2, 3}
-        self.rule_sequence = []
-        self.rule_seq_index = 0
 
-        # COVID state (separate)
-        # states: 'S' (susceptible), 'I' (infected), 'R' (recovered), 'V' (vaccinated)
+        # UNIDIMENSIONALES
+        self._unidimensional_rules = {
+            "Regla 30": 30, "Regla 90": 90, "Regla 110": 110, 
+            "Regla 184": 184, "Regla 54": 54, "Regla 73": 73
+        }
+        self._current_1d_rule = 30
+        self._1d_width = 100
+        self._1d_generations = 100
+        self._1d_state = []  # Estado actual 1D
+        self._1d_history = []  # Historial de generaciones
+        self._1d_running = False
+
+        # COVID-19 (Epidemiológico)
         self._state_covid = []
-        self._infection_age = []  # counters for infected cells
+        self._infection_age = []
         self._covid_running = False
         self._covid_stats = {"S": [], "I": [], "R": [], "V": []}
         self._max_stats_len = 1000
 
-        # default COVID params
+        # Parámetros COVID por defecto
         self.covid_init_infected_pct = 0.02
         self.covid_init_vaccinated_pct = 0.0
         self.covid_p_infect = 0.3
         self.covid_p_move = 0.2
-        self.covid_recovery_time = 10  # steps
+        self.covid_recovery_time = 10
 
-        # UI and init
+        # =========================================================================
+        # INTERFAZ DE USUARIO
+        # =========================================================================
         self._init_ui()
-        # create grid before invoking mode change so internal lists exist
         self._create_grid(self._n)
-        # set initial mode visibility/behavior
-        self._on_mode_changed(self.combo_mode.currentText())
+        self._init_1d_grid()
+        self._init_covid_grid()
 
-    # ---------------- UI ----------------
     def _init_ui(self):
         main = QVBoxLayout(self)
 
-        # MODE selector (Conway / COVID)
-        mode_row = QHBoxLayout()
-        mode_row.addWidget(QLabel("Modo:"))
-        self.combo_mode = QComboBox()
-        self.combo_mode.addItems(["Conway", "COVID-19"])
-        mode_row.addWidget(self.combo_mode)
-        mode_row.addStretch()
-        main.addLayout(mode_row)
+        # =========================================================================
+        # PESTAÑAS PARA LOS TRES MODOS
+        # =========================================================================
+        self.tabs = QTabWidget()
+        
+        # Pestaña 1: CONWAY
+        self.conway_tab = QWidget()
+        self._setup_conway_tab()
+        self.tabs.addTab(self.conway_tab, "Conway")
+        
+        # Pestaña 2: UNIDIMENSIONALES
+        self.unidimensional_tab = QWidget()
+        self._setup_unidimensional_tab()
+        self.tabs.addTab(self.unidimensional_tab, "Unidimensionales")
+        
+        # Pestaña 3: COVID-19
+        self.covid_tab = QWidget()
+        self._setup_covid_tab()
+        self.tabs.addTab(self.covid_tab, "COVID-19")
+        
+        main.addWidget(self.tabs)
+
+        # Conectar eventos de cambio de pestaña
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+
+    # =============================================================================
+    # CONWAY - AUTÓMATA BIDIMENSIONAL
+    # =============================================================================
+    def _setup_conway_tab(self):
+        layout = QVBoxLayout(self.conway_tab)
 
         # top row: size, toroidal, rule, presets (Conway)
         top_row = QHBoxLayout()
@@ -116,7 +152,7 @@ class TabAutomataCelular(QWidget):
         presets_layout.addWidget(self.btn_load_preset)
         top_row.addWidget(presets_box)
 
-        main.addLayout(top_row)
+        layout.addLayout(top_row)
 
         # control row: common controls (play/pause/step for current mode)
         ctrl_row = QHBoxLayout()
@@ -140,7 +176,7 @@ class TabAutomataCelular(QWidget):
         speed_layout.addWidget(self.slider_speed)
         ctrl_row.addWidget(speed_box)
 
-        # Conway autostop options (only visible for Conway)
+        # Conway autostop options
         self.chk_autostop_extinct = QCheckBox("Autostop si se extingue")
         self.chk_autostop_stagnant = QCheckBox("Autostop si sin cambios")
         self.chk_autostop_cycle = QCheckBox("Detectar ciclos")
@@ -150,10 +186,7 @@ class TabAutomataCelular(QWidget):
         ctrl_row.addWidget(self.chk_autostop_stagnant)
         ctrl_row.addWidget(self.chk_autostop_cycle)
 
-        main.addLayout(ctrl_row)
-
-        # main content: grid + plot (plot used for COVID)
-        content_row = QHBoxLayout()
+        layout.addLayout(ctrl_row)
 
         # grid widget
         self.table = QTableWidget()
@@ -161,7 +194,276 @@ class TabAutomataCelular(QWidget):
         self.table.horizontalHeader().setVisible(False)
         self.table.verticalHeader().setVisible(False)
         self.table.setShowGrid(True)
-        content_row.addWidget(self.table, stretch=3)
+        layout.addWidget(self.table)
+
+        # bottom row: load/save
+        bottom_row = QHBoxLayout()
+        self.btn_save = QPushButton("Guardar CSV")
+        self.btn_load = QPushButton("Cargar CSV")
+        bottom_row.addWidget(self.btn_save)
+        bottom_row.addWidget(self.btn_load)
+        layout.addLayout(bottom_row)
+
+        # connections Conway
+        self.btn_apply_size.clicked.connect(self._on_apply_size)
+        self.chk_toroidal.stateChanged.connect(self._on_toroidal_change)
+        self.slider_speed.valueChanged.connect(self._on_speed_change)
+        self.btn_start.clicked.connect(self.start)
+        self.btn_pause.clicked.connect(self.pause)
+        self.btn_step.clicked.connect(self.step_once)
+        self.btn_random.clicked.connect(self._on_random)
+        self.btn_clear.clicked.connect(self.clear)
+        self.table.cellClicked.connect(self._on_cell_clicked)
+        self.btn_load_preset.clicked.connect(self._on_load_preset)
+        self.btn_apply_rule.clicked.connect(self._on_apply_rule)
+        self.btn_save.clicked.connect(self._on_save_csv)
+        self.btn_load.clicked.connect(self._on_load_csv)
+
+    # =============================================================================
+    # UNIDIMENSIONALES - AUTÓMATAS 1D
+    # =============================================================================
+    def _setup_unidimensional_tab(self):
+        layout = QVBoxLayout(self.unidimensional_tab)
+
+        # Controles superiores 1D
+        top_controls = QHBoxLayout()
+
+        # Configuración 1D
+        config_group = QGroupBox("Configuración 1D")
+        config_layout = QFormLayout(config_group)
+        
+        self.combo_1d_rules = QComboBox()
+        self.combo_1d_rules.addItems(self._unidimensional_rules.keys())
+        config_layout.addRow("Regla:", self.combo_1d_rules)
+        
+        self.spin_1d_width = QSpinBox()
+        self.spin_1d_width.setRange(50, 500)
+        self.spin_1d_width.setValue(self._1d_width)
+        config_layout.addRow("Ancho:", self.spin_1d_width)
+        
+        self.spin_1d_generations = QSpinBox()
+        self.spin_1d_generations.setRange(50, 500)
+        self.spin_1d_generations.setValue(self._1d_generations)
+        config_layout.addRow("Generaciones:", self.spin_1d_generations)
+        
+        top_controls.addWidget(config_group)
+
+        # Controles 1D
+        ctrl_group = QGroupBox("Controles 1D")
+        ctrl_layout = QVBoxLayout(ctrl_group)
+        
+        self.btn_1d_random = QPushButton("Estado aleatorio")
+        self.btn_1d_single = QPushButton("Una célula central")
+        self.btn_1d_start = QPushButton("Iniciar evolución")
+        self.btn_1d_pause = QPushButton("Pausar")
+        self.btn_1d_step = QPushButton("Siguiente generación")
+        self.btn_1d_clear = QPushButton("Limpiar")
+        
+        ctrl_layout.addWidget(self.btn_1d_random)
+        ctrl_layout.addWidget(self.btn_1d_single)
+        ctrl_layout.addWidget(self.btn_1d_start)
+        ctrl_layout.addWidget(self.btn_1d_pause)
+        ctrl_layout.addWidget(self.btn_1d_step)
+        ctrl_layout.addWidget(self.btn_1d_clear)
+        
+        top_controls.addWidget(ctrl_group)
+        layout.addLayout(top_controls)
+
+        # Grid unidimensional
+        grid_group = QGroupBox("Evolución Unidimensional - Cada fila es una generación")
+        grid_layout = QVBoxLayout(grid_group)
+        self.table_1d = QTableWidget()
+        self.table_1d.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table_1d.horizontalHeader().setVisible(False)
+        self.table_1d.verticalHeader().setVisible(False)
+        self.table_1d.setShowGrid(True)
+        grid_layout.addWidget(self.table_1d)
+        layout.addWidget(grid_group)
+
+        # Información sobre reglas
+        info_group = QGroupBox("Información de la Regla")
+        info_layout = QVBoxLayout(info_group)
+        self.info_1d_label = QLabel()
+        self.info_1d_label.setWordWrap(True)
+        info_layout.addWidget(self.info_1d_label)
+        layout.addWidget(info_group)
+
+        # Conexiones unidimensionales
+        self.btn_1d_random.clicked.connect(self._1d_random_initial)
+        self.btn_1d_single.clicked.connect(self._1d_single_initial)
+        self.btn_1d_start.clicked.connect(self._1d_start)
+        self.btn_1d_pause.clicked.connect(self._1d_pause)
+        self.btn_1d_step.clicked.connect(self._1d_step)
+        self.btn_1d_clear.clicked.connect(self._1d_clear)
+        self.combo_1d_rules.currentTextChanged.connect(self._on_1d_rule_changed)
+        self.spin_1d_width.valueChanged.connect(self._on_1d_size_changed)
+        self.spin_1d_generations.valueChanged.connect(self._on_1d_generations_changed)
+
+        # Actualizar información inicial
+        self._update_1d_info()
+
+    def _init_1d_grid(self):
+        """Inicializar grid unidimensional"""
+        width = self._1d_width
+        generations = self._1d_generations
+        
+        self.table_1d.clear()
+        self.table_1d.setRowCount(generations)
+        self.table_1d.setColumnCount(width)
+        
+        # Tamaño de celdas
+        cell_size = max(3, min(10, int(800 / width)))
+        for c in range(width):
+            self.table_1d.setColumnWidth(c, cell_size)
+        for r in range(generations):
+            self.table_1d.setRowHeight(r, cell_size)
+        
+        # Inicializar estado 1D
+        self._1d_state = [0] * width
+        self._1d_history = []
+        
+        # Crear items
+        for r in range(generations):
+            for c in range(width):
+                item = QTableWidgetItem()
+                item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
+                item.setBackground(QBrush(self._cell_dead_color))
+                self.table_1d.setItem(r, c, item)
+
+    def _1d_rule_function(self, left, center, right):
+        """Aplicar regla unidimensional a tripleta"""
+        rule_num = self._current_1d_rule
+        pattern = (left << 2) | (center << 1) | right
+        return (rule_num >> pattern) & 1
+
+    def _1d_evolve_generation(self):
+        """Evolucionar una generación 1D"""
+        width = len(self._1d_state)
+        new_state = [0] * width
+        
+        for i in range(width):
+            left = self._1d_state[(i-1) % width]
+            center = self._1d_state[i]
+            right = self._1d_state[(i+1) % width]
+            new_state[i] = self._1d_rule_function(left, center, right)
+        
+        return new_state
+
+    def _1d_display(self):
+        """Mostrar estado unidimensional en la tabla"""
+        width = self._1d_width
+        generations = self._1d_generations
+        
+        # Limitar historial al número de generaciones
+        while len(self._1d_history) > generations:
+            self._1d_history.pop(0)
+        
+        # Mostrar todas las generaciones
+        for gen_idx, generation in enumerate(self._1d_history):
+            if gen_idx >= generations:
+                break
+            for cell_idx, cell in enumerate(generation):
+                if cell_idx < width:
+                    item = self.table_1d.item(gen_idx, cell_idx)
+                    if item:
+                        color = self._cell_alive_color if cell else self._cell_dead_color
+                        item.setBackground(QBrush(color))
+
+    def _1d_random_initial(self):
+        """Estado inicial aleatorio 1D"""
+        self._1d_state = [random.randint(0, 1) for _ in range(self._1d_width)]
+        self._1d_history = [self._1d_state.copy()]
+        self._1d_display()
+
+    def _1d_single_initial(self):
+        """Una sola célula viva en el centro"""
+        self._1d_state = [0] * self._1d_width
+        self._1d_state[self._1d_width // 2] = 1
+        self._1d_history = [self._1d_state.copy()]
+        self._1d_display()
+
+    def _1d_step(self):
+        """Evolucionar una generación 1D"""
+        if not self._1d_history:
+            self._1d_history = [self._1d_state.copy()]
+        
+        new_gen = self._1d_evolve_generation()
+        self._1d_state = new_gen
+        self._1d_history.append(new_gen.copy())
+        self._1d_display()
+
+    def _1d_start(self):
+        """Iniciar evolución automática 1D"""
+        if not self._1d_running:
+            self._1d_running = True
+            self._timer.start(self._timer_interval)
+
+    def _1d_pause(self):
+        """Pausar evolución 1D"""
+        if self._1d_running:
+            self._1d_running = False
+            self._timer.stop()
+
+    def _1d_clear(self):
+        """Limpiar grid 1D"""
+        self._1d_state = [0] * self._1d_width
+        self._1d_history = []
+        self._init_1d_grid()
+
+    def _on_1d_rule_changed(self, rule_name):
+        """Cambiar regla unidimensional"""
+        self._current_1d_rule = self._unidimensional_rules[rule_name]
+        self._update_1d_info()
+
+    def _on_1d_size_changed(self, value):
+        """Cambiar tamaño 1D"""
+        self._1d_width = value
+        self._1d_clear()
+
+    def _on_1d_generations_changed(self, value):
+        """Cambiar número de generaciones"""
+        self._1d_generations = value
+        self._init_1d_grid()
+        if self._1d_history:
+            self._1d_display()
+
+    def _update_1d_info(self):
+        """Actualizar información sobre la regla 1D actual"""
+        rule_num = self._current_1d_rule
+        info = f"Regla {rule_num}:\n"
+        
+        if rule_num == 30:
+            info += "Comportamiento caótico, genera números aleatorios"
+        elif rule_num == 90:
+            info += "Patrón fractal tipo Sierpinski, comportamiento lineal"
+        elif rule_num == 110:
+            info += "Universalidad computacional, comportamiento complejo"
+        elif rule_num == 184:
+            info += "Modelo de tráfico vehicular, partículas que se mueven"
+        elif rule_num == 54:
+            info += "Patrones complejos, comportamiento interesante"
+        elif rule_num == 73:
+            info += "Patrones repetitivos, comportamiento estructurado"
+            
+        info += f"\n\nBinario: {rule_num:08b}"
+        self.info_1d_label.setText(info)
+
+    # =============================================================================
+    # COVID-19 - MODELO EPIDEMIOLÓGICO (CORREGIDO)
+    # =============================================================================
+    def _setup_covid_tab(self):
+        layout = QVBoxLayout(self.covid_tab)
+
+        # main content: grid + plot (plot used for COVID)
+        content_row = QHBoxLayout()
+
+        # grid widget
+        self.table_covid = QTableWidget()
+        self.table_covid.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table_covid.horizontalHeader().setVisible(False)
+        self.table_covid.verticalHeader().setVisible(False)
+        self.table_covid.setShowGrid(True)
+        content_row.addWidget(self.table_covid, stretch=3)
 
         # right panel: covid-specific controls + plot
         right_v = QVBoxLayout()
@@ -169,25 +471,36 @@ class TabAutomataCelular(QWidget):
         # COVID controls group
         self.covid_controls_group = QGroupBox("Controles COVID-19")
         covid_layout = QFormLayout(self.covid_controls_group)
+        
         self.cov_init_inf = QDoubleSpinBox()
         self.cov_init_inf.setRange(0.0, 1.0)
         self.cov_init_inf.setSingleStep(0.01)
         self.cov_init_inf.setValue(self.covid_init_infected_pct)
+        self.cov_init_inf.valueChanged.connect(self._on_covid_params_changed)
+        
         self.cov_init_vac = QDoubleSpinBox()
         self.cov_init_vac.setRange(0.0, 1.0)
         self.cov_init_vac.setSingleStep(0.01)
         self.cov_init_vac.setValue(self.covid_init_vaccinated_pct)
+        self.cov_init_vac.valueChanged.connect(self._on_covid_params_changed)
+        
         self.cov_p_infect = QDoubleSpinBox()
         self.cov_p_infect.setRange(0.0, 1.0)
         self.cov_p_infect.setSingleStep(0.01)
         self.cov_p_infect.setValue(self.covid_p_infect)
+        self.cov_p_infect.valueChanged.connect(self._on_covid_params_changed)
+        
         self.cov_p_move = QDoubleSpinBox()
         self.cov_p_move.setRange(0.0, 1.0)
         self.cov_p_move.setSingleStep(0.01)
         self.cov_p_move.setValue(self.covid_p_move)
+        self.cov_p_move.valueChanged.connect(self._on_covid_params_changed)
+        
         self.cov_rec_time = QSpinBox()
         self.cov_rec_time.setRange(1, 1000)
         self.cov_rec_time.setValue(self.covid_recovery_time)
+        self.cov_rec_time.valueChanged.connect(self._on_covid_params_changed)
+        
         covid_layout.addRow("Infectados iniciales %", self.cov_init_inf)
         covid_layout.addRow("Vacunados iniciales %", self.cov_init_vac)
         covid_layout.addRow("Prob contagio (p)", self.cov_p_infect)
@@ -214,46 +527,58 @@ class TabAutomataCelular(QWidget):
         right_v.addWidget(self.canvas)
 
         content_row.addLayout(right_v, stretch=2)
-        main.addLayout(content_row)
-
-        # bottom row: load/save for both modes
-        bottom_row = QHBoxLayout()
-        self.btn_save = QPushButton("Guardar CSV")
-        self.btn_load = QPushButton("Cargar CSV")
-        bottom_row.addWidget(self.btn_save)
-        bottom_row.addWidget(self.btn_load)
-        main.addLayout(bottom_row)
-
-        # connections common
-        self.btn_apply_size.clicked.connect(self._on_apply_size)
-        self.chk_toroidal.stateChanged.connect(self._on_toroidal_change)
-        self.slider_speed.valueChanged.connect(self._on_speed_change)
-
-        # Conway connections
-        self.btn_start.clicked.connect(self.start)
-        self.btn_pause.clicked.connect(self.pause)
-        self.btn_step.clicked.connect(self.step_once)
-        self.btn_random.clicked.connect(self._on_random)
-        self.btn_clear.clicked.connect(self.clear)
-        self.table.cellClicked.connect(self._on_cell_clicked)
-        self.btn_load_preset.clicked.connect(self._on_load_preset)
-        self.btn_apply_rule.clicked.connect(self._on_apply_rule)
-        self.btn_save.clicked.connect(self._on_save_csv)
-        self.btn_load.clicked.connect(self._on_load_csv)
+        layout.addLayout(content_row)
 
         # COVID connections
         self.btn_covid_random.clicked.connect(self._covid_generate_random)
         self.btn_covid_start.clicked.connect(self._covid_start)
         self.btn_covid_pause.clicked.connect(self._covid_pause)
-        self.btn_covid_step.clicked.connect(self._covid_step)  # calls one-step wrapper
-        # reuse load/save (already connected above)
+        self.btn_covid_step.clicked.connect(self._covid_step)
+        self.table_covid.cellClicked.connect(self._on_cell_clicked)
 
-        # mode selector
-        self.combo_mode.currentTextChanged.connect(self._on_mode_changed)
+    def _init_covid_grid(self):
+        """Inicializar grid específico para COVID"""
+        self.table_covid.clear()
+        self.table_covid.setRowCount(self._n)
+        self.table_covid.setColumnCount(self._n)
+        
+        cell_size = max(8, min(28, int(600 / self._n)))
+        for r in range(self._n):
+            self.table_covid.setRowHeight(r, cell_size)
+        for c in range(self._n):
+            self.table_covid.setColumnWidth(c, cell_size)
+        
+        # Inicializar estados COVID
+        self._state_covid = [["S" for _ in range(self._n)] for __ in range(self._n)]
+        self._infection_age = [[0 for _ in range(self._n)] for __ in range(self._n)]
+        
+        # Crear items de tabla específicos para COVID
+        for r in range(self._n):
+            for c in range(self._n):
+                item = QTableWidgetItem()
+                item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
+                # Color inicial para susceptibles (blanco)
+                item.setBackground(QBrush(QColor(255, 255, 255)))
+                self.table_covid.setItem(r, c, item)
+        
+        self._clear_covid_stats()
 
-    # ---------------- grid construction ----------------
+    def _on_covid_params_changed(self):
+        """Actualizar parámetros COVID cuando cambian los controles"""
+        self.covid_init_infected_pct = self.cov_init_inf.value()
+        self.covid_init_vaccinated_pct = self.cov_init_vac.value()
+        self.covid_p_infect = self.cov_p_infect.value()
+        self.covid_p_move = self.cov_p_move.value()
+        self.covid_recovery_time = self.cov_rec_time.value()
+
+    # =============================================================================
+    # MÉTODOS COMUNES - GRID Y ESTADOS
+    # =============================================================================
     def _create_grid(self, n):
+        """Crear grid para Conway y COVID por separado"""
         self._n = int(n)
+        
+        # Grid Conway
         self.table.clear()
         self.table.setRowCount(self._n)
         self.table.setColumnCount(self._n)
@@ -262,21 +587,22 @@ class TabAutomataCelular(QWidget):
             self.table.setRowHeight(r, cell_size)
         for c in range(self._n):
             self.table.setColumnWidth(c, cell_size)
-        # initialize both models' states
+        
+        # Inicializar estados Conway
         self._state = [[0 for _ in range(self._n)] for __ in range(self._n)]
-        self._state_covid = [["S" for _ in range(self._n)] for __ in range(self._n)]
-        self._infection_age = [[0 for _ in range(self._n)] for __ in range(self._n)]
-        # create table items
+        
+        # Crear items de tabla Conway
         for r in range(self._n):
             for c in range(self._n):
                 item = QTableWidgetItem()
                 item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
                 item.setBackground(QBrush(self._cell_dead_color))
                 self.table.setItem(r, c, item)
+        
         self._history_hashes.clear()
-        # clear covid stats and plot
-        self._clear_covid_stats()
-        self._redraw_plot()
+        
+        # También inicializar grid COVID
+        self._init_covid_grid()
 
     def _set_cell_state(self, r, c, alive):
         """Conway painting (alive=True/False)."""
@@ -291,46 +617,123 @@ class TabAutomataCelular(QWidget):
         item.setBackground(QBrush(self._cell_alive_color if alive else self._cell_dead_color))
 
     def _set_cell_state_covid(self, r, c, state):
-        """COVID painting: state in {'S','I','R','V'}"""
+        """COVID painting: state in {'S','I','R','V'} - CORREGIDO"""
         if r < 0 or c < 0 or r >= self._n or c >= self._n:
             return
+            
         self._state_covid[r][c] = state
-        # infection age maintained separately
-        item = self.table.item(r, c)
+        item = self.table_covid.item(r, c)
+        
         if item is None:
+            # Crear item si no existe
             item = QTableWidgetItem()
             item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
-            self.table.setItem(r, c, item)
-        # colors mapping (classic: white background, infected red, recovered green, vaccinated blue)
+            self.table_covid.setItem(r, c, item)
+            
+        # Mapa de colores más distintivo
         color_map = {
-            "S": QBrush(QColor(255, 255, 255)),
-            "I": QBrush(QColor(200, 30, 30)),
-            "R": QBrush(QColor(80, 180, 80)),
-            "V": QBrush(QColor(80, 140, 220)),
+            "S": QColor(255, 255, 255),    # Blanco - Susceptible
+            "I": QColor(255, 50, 50),      # Rojo - Infectado
+            "R": QColor(50, 200, 50),      # Verde - Recuperado
+            "V": QColor(50, 100, 255),     # Azul - Vacunado
         }
-        item.setBackground(color_map.get(state, QBrush(QColor(255, 255, 255))))
+        
+        item.setBackground(QBrush(color_map.get(state, QColor(255, 255, 255))))
 
     def _on_cell_clicked(self, row, col):
-        mode = self.combo_mode.currentText()
-        if mode == "Conway":
+        current_tab = self.tabs.currentIndex()
+        
+        if current_tab == 0:  # Conway
             new_state = 0 if self._state[row][col] else 1
             self._set_cell_state(row, col, new_state)
             self._history_hashes.clear()
-        else:
-            # cycle through states S -> I -> R -> V -> S
+            
+        elif current_tab == 2:  # COVID-19 - CORREGIDO
             cur = self._state_covid[row][col]
             order = ["S", "I", "R", "V"]
             next_state = order[(order.index(cur) + 1) % len(order)]
             self._set_cell_state_covid(row, col, next_state)
-            if next_state != "I":
+            
+            if next_state == "I":
                 self._infection_age[row][col] = 0
             else:
                 self._infection_age[row][col] = 0
-            # reset covid stats
+                
             self._clear_covid_stats()
-            self._redraw_plot()
 
-    # ---------------- neighbors (shared utility) ----------------
+    # =============================================================================
+    # MÉTODOS DE CONTROL COMUNES
+    # =============================================================================
+    def _on_timer_tick(self):
+        """Tick del timer para simulaciones"""
+        current_tab = self.tabs.currentIndex()
+        if current_tab == 0 and self._running:  # Conway
+            self.step_once()
+        elif current_tab == 1 and self._1d_running:  # Unidimensionales
+            self._1d_step()
+        elif current_tab == 2 and self._covid_running:  # COVID-19
+            self._covid_step_once()
+
+    def start(self):
+        """Iniciar simulación Conway"""
+        if not self._running:
+            self._running = True
+            self._timer.start(self._timer_interval)
+
+    def pause(self):
+        """Pausar simulación Conway"""
+        if self._running:
+            self._running = False
+            self._timer.stop()
+
+    def _on_speed_change(self, val):
+        """Cambiar velocidad"""
+        self._timer_interval = int(val)
+        if self._timer.isActive():
+            self._timer.setInterval(self._timer_interval)
+
+    def clear(self):
+        """Limpiar Conway"""
+        for r in range(self._n):
+            for c in range(self._n):
+                self._set_cell_state(r, c, 0)
+        self._history_hashes.clear()
+
+    def randomize(self, fill_prob=0.3):
+        """Generar estado aleatorio Conway"""
+        for r in range(self._n):
+            for c in range(self._n):
+                alive = random.random() < fill_prob
+                self._set_cell_state(r, c, alive)
+        self._history_hashes.clear()
+
+    def _on_random(self):
+        self.randomize(fill_prob=0.3)
+
+    def _on_apply_size(self):
+        n = self.spin_n.value()
+        self._create_grid(n)
+
+    def _on_toroidal_change(self, state):
+        self._toroidal = (state == Qt.CheckState.Checked)
+
+    def _on_tab_changed(self, index):
+        """Cambio entre pestañas"""
+        # Detener todas las simulaciones
+        if self._timer.isActive():
+            self._timer.stop()
+        self._running = False
+        self._1d_running = False
+        self._covid_running = False
+        
+        # Inicializar automáticamente al cambiar a COVID
+        if index == 2:  # Pestaña COVID-19
+            self._init_covid_grid()
+            self._covid_generate_random()
+
+    # =============================================================================
+    # CONWAY - IMPLEMENTACIÓN
+    # =============================================================================
     def _neighbor_coords(self, r, c):
         coords = []
         for dr in (-1, 0, 1):
@@ -346,7 +749,6 @@ class TabAutomataCelular(QWidget):
                         coords.append((rr, cc))
         return coords
 
-    # ---------------- Conway: rules & step ----------------
     def set_rules_from_string(self, rule_str):
         s = rule_str.strip().lower()
         if s == "conway":
@@ -359,20 +761,8 @@ class TabAutomataCelular(QWidget):
         self.birth_set = set(int(ch) for ch in bpart[1:] if ch.isdigit())
         self.survive_set = set(int(ch) for ch in spart[1:] if ch.isdigit())
 
-    def set_rule_sequence(self, rule_list):
-        self.rule_sequence = [r.strip() for r in rule_list]
-        self.rule_seq_index = 0
-        if self.rule_sequence:
-            self.set_rules_from_string(self.rule_sequence[0])
-
-    def _advance_rule_sequence(self):
-        if self.rule_sequence:
-            self.rule_seq_index = (self.rule_seq_index + 1) % len(self.rule_sequence)
-            self.set_rules_from_string(self.rule_sequence[self.rule_seq_index])
-
     def step_once(self):
         """Conway single step"""
-        # ensure rules
         if not hasattr(self, "birth_set") or not hasattr(self, "survive_set"):
             self.set_rules_from_string("B3/S23")
 
@@ -409,79 +799,6 @@ class TabAutomataCelular(QWidget):
             QMessageBox.information(self, "Autostop", "Ciclo detectado (estado repetido).")
             return
 
-        if self.rule_sequence:
-            self._advance_rule_sequence()
-
-    def _on_timer_tick(self):
-        mode = self.combo_mode.currentText()
-        if mode == "Conway":
-            self.step_once()
-        else:
-            self._covid_step_once()
-
-    # ---------------- timer / controls ----------------
-    def start(self):
-        mode = self.combo_mode.currentText()
-        if mode == "Conway":
-            if not self._running:
-                self._running = True
-                self._timer.start(self._timer_interval)
-        else:
-            self._covid_start()
-
-    def pause(self):
-        mode = self.combo_mode.currentText()
-        if mode == "Conway":
-            if self._running:
-                self._running = False
-                self._timer.stop()
-        else:
-            self._covid_pause()
-
-    def _on_speed_change(self, val):
-        self._timer_interval = int(val)
-        if self._timer.isActive():
-            self._timer.setInterval(self._timer_interval)
-
-    def clear(self):
-        mode = self.combo_mode.currentText()
-        if mode == "Conway":
-            for r in range(self._n):
-                for c in range(self._n):
-                    self._set_cell_state(r, c, 0)
-            self._history_hashes.clear()
-        else:
-            # reset covid grid to all susceptible
-            for r in range(self._n):
-                for c in range(self._n):
-                    self._set_cell_state_covid(r, c, "S")
-                    self._infection_age[r][c] = 0
-            self._clear_covid_stats()
-            self._redraw_plot()
-
-    def randomize(self, fill_prob=0.3):
-        mode = self.combo_mode.currentText()
-        if mode == "Conway":
-            for r in range(self._n):
-                for c in range(self._n):
-                    alive = random.random() < fill_prob
-                    self._set_cell_state(r, c, alive)
-            self._history_hashes.clear()
-        else:
-            self._covid_generate_random()
-
-    def _on_random(self):
-        # quick dialog-less random (30% by default)
-        self.randomize(fill_prob=0.3)
-
-    def _on_apply_size(self):
-        n = self.spin_n.value()
-        self._create_grid(n)
-
-    def _on_toroidal_change(self, state):
-        self._toroidal = (state == Qt.CheckState.Checked)
-
-    # ---------------- history / cycle detection ----------------
     def _state_to_bytes(self):
         flat = bytearray()
         for r in range(self._n):
@@ -502,12 +819,16 @@ class TabAutomataCelular(QWidget):
         cur = self._history_hashes[-1]
         return self._history_hashes.count(cur) > 1
 
-    # ---------------- COVID implementation ----------------
+    # =============================================================================
+    # COVID-19 - IMPLEMENTACIÓN (CORREGIDA)
+    # =============================================================================
     def _clear_covid_stats(self):
-        self._covid_stats = {"S": deque(maxlen=self._max_stats_len),
-                             "I": deque(maxlen=self._max_stats_len),
-                             "R": deque(maxlen=self._max_stats_len),
-                             "V": deque(maxlen=self._max_stats_len)}
+        self._covid_stats = {
+            "S": deque(maxlen=self._max_stats_len),
+            "I": deque(maxlen=self._max_stats_len),
+            "R": deque(maxlen=self._max_stats_len),
+            "V": deque(maxlen=self._max_stats_len)
+        }
         self._redraw_plot()
 
     def _covid_count_states(self):
@@ -519,8 +840,13 @@ class TabAutomataCelular(QWidget):
         return counts
 
     def _covid_generate_random(self):
-        p_inf = float(self.cov_init_inf.value())
-        p_vac = float(self.cov_init_vac.value())
+        """Usar parámetros actuales de los controles"""
+        # Actualizar parámetros desde controles
+        self._on_covid_params_changed()
+        
+        p_inf = self.covid_init_infected_pct
+        p_vac = self.covid_init_vaccinated_pct
+        
         for r in range(self._n):
             for c in range(self._n):
                 rnd = random.random()
@@ -533,6 +859,7 @@ class TabAutomataCelular(QWidget):
                 else:
                     self._set_cell_state_covid(r, c, "S")
                     self._infection_age[r][c] = 0
+                    
         self._clear_covid_stats()
         self._push_covid_stats()
         self._redraw_plot()
@@ -541,47 +868,43 @@ class TabAutomataCelular(QWidget):
         counts = self._covid_count_states()
         for k in ("S", "I", "R", "V"):
             self._covid_stats[k].append(counts[k])
-        # trim handled by deque
 
     def _redraw_plot(self):
         self.ax.clear()
-        # plot current stats
         x = list(range(len(self._covid_stats["S"])))
         if x:
-            self.ax.plot(x, list(self._covid_stats["S"]), label="S")
-            self.ax.plot(x, list(self._covid_stats["I"]), label="I")
-            self.ax.plot(x, list(self._covid_stats["R"]), label="R")
-            self.ax.plot(x, list(self._covid_stats["V"]), label="V")
+            self.ax.plot(x, list(self._covid_stats["S"]), label="S (Susceptibles)", color='blue')
+            self.ax.plot(x, list(self._covid_stats["I"]), label="I (Infectados)", color='red')
+            self.ax.plot(x, list(self._covid_stats["R"]), label="R (Recuperados)", color='green')
+            self.ax.plot(x, list(self._covid_stats["V"]), label="V (Vacunados)", color='orange')
             self.ax.legend()
-            self.ax.set_xlabel("Generación")
+            self.ax.set_xlabel("Pasos de tiempo")
             self.ax.set_ylabel("Número de individuos")
+            self.ax.set_title("Evolución de la Pandemia COVID-19")
+            self.ax.grid(True, alpha=0.3)
         else:
-            self.ax.text(0.5, 0.5, "No hay datos COVID", ha='center')
+            self.ax.text(0.5, 0.5, "No hay datos COVID", ha='center', va='center', transform=self.ax.transAxes)
         self.canvas.draw()
 
     def _covid_step_once(self):
-        """
-        COVID step:
-         - Movement: with probability p_move, swap cell with a random neighbor (simulate mobility)
-         - Infection: infected cells try to infect susceptible neighbors with p_infect
-         - Recovery: infected with age >= recovery_time -> R
-         - Auto-stop: if no infected remain, stop and show message.
-        """
-        p_infect = float(self.cov_p_infect.value())
-        p_move = float(self.cov_p_move.value())
-        rec_time = int(self.cov_rec_time.value())
+        """Usar parámetros actualizados"""
+        # Actualizar parámetros desde controles
+        self._on_covid_params_changed()
+        
+        p_infect = self.covid_p_infect
+        p_move = self.covid_p_move
+        rec_time = self.covid_recovery_time
 
-        # Movement phase: build swaps
+        # Movement phase
         swaps = []
         for r in range(self._n):
             for c in range(self._n):
                 if random.random() < p_move:
                     neigh = self._neighbor_coords(r, c)
-                    if not neigh:
-                        continue
-                    rr, cc = random.choice(neigh)
-                    swaps.append((r, c, rr, cc))
-        # apply swaps
+                    if neigh:
+                        rr, cc = random.choice(neigh)
+                        swaps.append((r, c, rr, cc))
+        
         for (r, c, rr, cc) in swaps:
             self._state_covid[r][c], self._state_covid[rr][cc] = self._state_covid[rr][cc], self._state_covid[r][c]
             self._infection_age[r][c], self._infection_age[rr][cc] = self._infection_age[rr][cc], self._infection_age[r][c]
@@ -593,43 +916,37 @@ class TabAutomataCelular(QWidget):
         for r in range(self._n):
             for c in range(self._n):
                 if self._state_covid[r][c] == "I":
+                    # Infectar vecinos susceptibles
                     for rr, cc in self._neighbor_coords(r, c):
-                        if self._state_covid[rr][cc] == "S":
-                            if random.random() < p_infect:
-                                new_infections.append((rr, cc))
-                    # age increment and possible recovery
+                        if self._state_covid[rr][cc] == "S" and random.random() < p_infect:
+                            new_infections.append((rr, cc))
+                    
+                    # Avanzar edad de infección
                     self._infection_age[r][c] += 1
                     if self._infection_age[r][c] >= rec_time:
                         self._set_cell_state_covid(r, c, "R")
                         self._infection_age[r][c] = 0
 
-        # apply new infections
+        # Aplicar nuevas infecciones
         for rr, cc in new_infections:
             if self._state_covid[rr][cc] == "S":
                 self._set_cell_state_covid(rr, cc, "I")
                 self._infection_age[rr][cc] = 0
 
-        # update stats and plot
         self._push_covid_stats()
         self._redraw_plot()
 
-        # AUTOSTOP: si no quedan infectados, detener y notificar
+        # AUTOSTOP
         counts = self._covid_count_states()
         if counts.get("I", 0) == 0:
-            # stop timer and flag
             self._covid_running = False
             if self._timer.isActive():
                 self._timer.stop()
             QMessageBox.information(self, "Autostop COVID", "Epidemia contenida: no quedan infectados (I=0).")
 
-    # COVID start/pause interfaces
     def _covid_start(self):
         if not self._covid_running:
-            # ensure other mode's running flag is false
-            self._running = False
             self._covid_running = True
-            # set timer interval and start (shared QTimer)
-            self._timer.setInterval(self._timer_interval)
             self._timer.start(self._timer_interval)
 
     def _covid_pause(self):
@@ -639,44 +956,11 @@ class TabAutomataCelular(QWidget):
                 self._timer.stop()
 
     def _covid_step(self):
-        # wrapper called by button: execute one covid step
         self._covid_step_once()
 
-    # ---------------- load/save / presets / cargar desde Ri (Conway + COVID) ----------------
-    def cargar_desde_ri(self, ri_list, umbral=0.5):
-        """Conway mapping: fila-major -> alive if Ri >= umbral"""
-        flat_count = self._n * self._n
-        for i in range(flat_count):
-            r = i // self._n; c = i % self._n
-            val = ri_list[i] if i < len(ri_list) else 0.0
-            alive = bool(val >= umbral)
-            self._set_cell_state(r, c, alive)
-        self._history_hashes.clear()
-
-    def cargar_topk_desde_ri(self, ri_list, k):
-        """Conway top-k mapping"""
-        flat_count = self._n * self._n
-        if k <= 0:
-            return
-        indexed = [(i, ri_list[i] if i < len(ri_list) else 0.0) for i in range(min(len(ri_list), flat_count))]
-        if len(indexed) < flat_count:
-            indexed += [(i, 0.0) for i in range(len(indexed), flat_count)]
-        indexed_sorted = sorted(indexed, key=lambda x: x[1], reverse=True)
-        top_indices = set(i for i, _ in indexed_sorted[:k])
-        for i in range(flat_count):
-            r = i // self._n; c = i % self._n
-            alive = (i in top_indices)
-            self._set_cell_state(r, c, alive)
-        self._history_hashes.clear()
-
-    def _on_load_from_ri_clicked(self):
-        QMessageBox.information(self, "Cargar desde Ri",
-                                "Este botón está pensado para llamadas por código: tab.cargar_desde_ri(ri_list, umbral).")
-
-    def _on_load_topk_clicked(self):
-        QMessageBox.information(self, "Cargar top-K",
-                                "Este botón está pensado para llamadas por código: tab.cargar_topk_desde_ri(ri_list, k).")
-
+    # =============================================================================
+    # MÉTODOS RESTANTES (PRESETS, LOAD/SAVE, ETC.)
+    # =============================================================================
     def _on_apply_rule(self):
         txt = self.le_rule.text().strip()
         try:
@@ -712,16 +996,28 @@ class TabAutomataCelular(QWidget):
         self._history_hashes.clear()
 
     def _on_save_csv(self):
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar estado CSV", "life_state.csv", "CSV Files (*.csv)")
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar estado CSV", "automata_state.csv", "CSV Files (*.csv)")
         if not path:
             return
         try:
             with open(path, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
+                current_tab = self.tabs.currentIndex()
+                writer.writerow(["mode", "conway" if current_tab == 0 else "covid" if current_tab == 2 else "1d"])
                 writer.writerow(["n", self._n, "toroidal", int(self._toroidal)])
-                # for conway save 0/1 matrix
-                for r in range(self._n):
-                    writer.writerow(self._state[r])
+                
+                if current_tab == 0:  # Conway
+                    for r in range(self._n):
+                        writer.writerow(self._state[r])
+                elif current_tab == 2:  # COVID-19
+                    for r in range(self._n):
+                        writer.writerow(self._state_covid[r])
+                elif current_tab == 1:  # Unidimensionales
+                    writer.writerow(["width", self._1d_width, "generations", self._1d_generations])
+                    writer.writerow(["rule", self._current_1d_rule])
+                    for gen in self._1d_history:
+                        writer.writerow(gen)
+                        
             QMessageBox.information(self, "Guardado", f"Estado guardado en {path}")
         except Exception as e:
             QMessageBox.critical(self, "Error guardado", str(e))
@@ -734,7 +1030,31 @@ class TabAutomataCelular(QWidget):
             with open(path, "r", encoding="utf-8") as f:
                 reader = csv.reader(f)
                 header = next(reader)
-                try:
+                mode = "conway"
+                if header[0] == "mode":
+                    mode = header[1]
+                    header = next(reader)
+                
+                if mode == "1d":
+                    # Cargar unidimensional
+                    if header[0] == "width":
+                        self._1d_width = int(header[1])
+                        self._1d_generations = int(header[3])
+                        self.spin_1d_width.setValue(self._1d_width)
+                        self.spin_1d_generations.setValue(self._1d_generations)
+                        rule_row = next(reader)
+                        self._current_1d_rule = int(rule_row[1])
+                        self._init_1d_grid()
+                        self._1d_history = []
+                        for row in reader:
+                            if row:
+                                self._1d_history.append([int(x) for x in row])
+                        if self._1d_history:
+                            self._1d_state = self._1d_history[-1].copy()
+                            self._1d_display()
+                    self.tabs.setCurrentIndex(1)
+                else:
+                    # Cargar Conway o COVID
                     if header[0] == "n":
                         self._n = int(header[1])
                         tor = int(header[3]) if len(header) > 3 else 0
@@ -744,93 +1064,71 @@ class TabAutomataCelular(QWidget):
                         rows = list(reader)
                     else:
                         rows = [header] + list(reader)
-                except Exception:
-                    rows = [header] + list(reader)
-                # try to detect whether saved file is Conway (0/1) or COVID (S/I/R/V)
-                for r_idx, row in enumerate(rows):
-                    for c_idx, val in enumerate(row):
-                        if r_idx < self._n and c_idx < self._n:
-                            token = val.strip()
-                            # if token numeric -> Conway
-                            try:
-                                v = int(float(token))
-                                self._set_cell_state(r_idx, c_idx, bool(v))
-                            except Exception:
-                                # text token -> assume COVID states
-                                if token.upper() in ("S", "I", "R", "V"):
-                                    self._set_cell_state_covid(r_idx, c_idx, token.upper())
+                    
+                    for r_idx, row in enumerate(rows):
+                        for c_idx, val in enumerate(row):
+                            if r_idx < self._n and c_idx < self._n:
+                                token = val.strip()
+                                if mode == "conway":
+                                    try:
+                                        v = int(float(token))
+                                        self._set_cell_state(r_idx, c_idx, bool(v))
+                                    except:
+                                        self._set_cell_state(r_idx, c_idx, 0)
                                 else:
-                                    # fallback: set dead
-                                    self._set_cell_state(r_idx, c_idx, 0)
+                                    if token.upper() in ("S", "I", "R", "V"):
+                                        self._set_cell_state_covid(r_idx, c_idx, token.upper())
+                    
+                    if mode == "conway":
+                        self.tabs.setCurrentIndex(0)
+                    else:
+                        self.tabs.setCurrentIndex(2)
+                        self._clear_covid_stats()
+                        self._redraw_plot()
+                        
             QMessageBox.information(self, "Cargado", f"Estado cargado desde {path}")
             self._history_hashes.clear()
-            self._clear_covid_stats()
-            self._redraw_plot()
+            
         except Exception as e:
             QMessageBox.critical(self, "Error carga", str(e))
 
-    # -------------- integration helpers ----------------
+    # Métodos públicos para integración
+    def cargar_desde_ri(self, ri_list, umbral=0.5):
+        """Cargar estado Conway desde lista Ri"""
+        for i in range(min(len(ri_list), self._n * self._n)):
+            r, c = i // self._n, i % self._n
+            alive = ri_list[i] >= umbral
+            self._set_cell_state(r, c, alive)
+        self._history_hashes.clear()
+
+    def cargar_topk_desde_ri(self, ri_list, k):
+        """Cargar top-K celdas desde lista Ri"""
+        if k <= 0:
+            return
+        indexed = [(i, ri_list[i] if i < len(ri_list) else 0.0) for i in range(min(len(ri_list), self._n * self._n))]
+        if len(indexed) < self._n * self._n:
+            indexed += [(i, 0.0) for i in range(len(indexed), self._n * self._n)]
+        indexed_sorted = sorted(indexed, key=lambda x: x[1], reverse=True)
+        top_indices = set(i for i, _ in indexed_sorted[:k])
+        for i in range(self._n * self._n):
+            r, c = i // self._n, i % self._n
+            alive = (i in top_indices)
+            self._set_cell_state(r, c, alive)
+        self._history_hashes.clear()
+
     def get_state_flat(self):
-        # returns Conway flat 0/1 if in Conway, else flatten covid states as chars
-        mode = self.combo_mode.currentText()
-        flat = []
-        if mode == "Conway":
-            for r in range(self._n):
-                for c in range(self._n):
-                    flat.append(self._state[r][c])
-        else:
-            for r in range(self._n):
-                for c in range(self._n):
-                    flat.append(self._state_covid[r][c])
-        return flat
+        """Obtener estado actual como lista plana"""
+        current_tab = self.tabs.currentIndex()
+        if current_tab == 0:  # Conway
+            return [cell for row in self._state for cell in row]
+        elif current_tab == 1:  # Unidimensionales
+            return self._1d_state if self._1d_state else []
+        elif current_tab == 2:  # COVID-19
+            state_map = {"S": 0, "I": 1, "R": 2, "V": 3}
+            return [state_map[state] for row in self._state_covid for state in row]
+        return []
 
-    def _on_mode_changed(self, mode_text):
-        """Toggle UI and behavior depending on the selected mode.
-        Limpia el grid automáticamente al cambiar de modo (comportamiento solicitado)."""
-        mode = mode_text
-
-        # always stop any running simulation first
-        if self._timer.isActive():
-            self._timer.stop()
-        self._running = False
-        self._covid_running = False
-
-        # clear grid when switching mode to avoid interpretaciones mezcladas
-        # (comportamiento 'más adecuado' que acordamos)
-        if mode == "COVID-19":
-            # switch to COVID: clear and initialize COVID state
-            self.covid_controls_group.setVisible(True)
-            self.btn_start.setText("Iniciar (modo activo)")
-            self.btn_pause.setText("Pausar")
-            self.btn_step.setText("Siguiente")
-            self.btn_random.setText("Generar aleatorio (Conway)")
-            # Clear and re-create COVID state clean
-            for r in range(self._n):
-                for c in range(self._n):
-                    self._set_cell_state_covid(r, c, "S")
-                    self._infection_age[r][c] = 0
-            self._clear_covid_stats()
-            # push initial counts and redraw
-            self._push_covid_stats()
-            self._redraw_plot()
-        else:
-            # Conway mode
-            self.covid_controls_group.setVisible(False)
-            self.btn_start.setText("Iniciar")
-            self.btn_pause.setText("Pausar")
-            self.btn_step.setText("Siguiente")
-            self.btn_random.setText("Generar aleatorio")
-            # Clear Conway grid
-            for r in range(self._n):
-                for c in range(self._n):
-                    self._set_cell_state(r, c, 0)
-            self._history_hashes.clear()
-            # ensure display reflects cleared Conway
-            for r in range(self._n):
-                for c in range(self._n):
-                    self._set_cell_state(r, c, 0)
-
-    # Convenience public wrappers for external callers
+    # Wrappers públicos
     def cargar_desde_ri_public(self, ri_list, umbral=0.5):
         self.cargar_desde_ri(ri_list, umbral)
 

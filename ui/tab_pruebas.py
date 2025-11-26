@@ -1,18 +1,20 @@
+import sys
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit,
-    QTableWidget, QTableWidgetItem, QMessageBox, QGroupBox, QHeaderView,
-    QFrame, QDialog, QSpinBox, QDoubleSpinBox
+    QApplication, QMainWindow, QTabWidget, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QPushButton, QTextEdit, QTableWidget, QTableWidgetItem,
+    QMessageBox, QGroupBox, QHeaderView, QFrame, QDialog, QSpinBox,
+    QDoubleSpinBox, QComboBox
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 import matplotlib.pyplot as plt
+import numpy as np
 
 # Importa tus funciones de pruebas
 from pruebas.media import prueba_medias
 from pruebas.varianza import prueba_varianza
 from pruebas.uniformidad import prueba_uniformidad
-
 
 # ---------------------- BOTÓN MODERNO ---------------------- #
 class ModernButton(QPushButton):
@@ -26,9 +28,9 @@ class ModernButton(QPushButton):
                 color: white;
                 border: none;
                 padding: 10px 15px;
-                border-radius: 6px;
+                border-radius: 8px;
                 font-weight: bold;
-                font-size: 12px;
+                font-size: 13px;
             }}
             QPushButton:hover {{
                 background-color: {hover_color};
@@ -42,13 +44,12 @@ class ModernButton(QPushButton):
             }}
         """)
 
-
 # ---------------------- DIALOG UNIFORMIDAD ---------------------- #
 class UniformidadDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Prueba de Uniformidad χ² Avanzada")
-        self.setMinimumSize(700, 500)
+        self.setMinimumSize(750, 500)
         self.numeros = []
         self.init_ui()
 
@@ -74,7 +75,7 @@ class UniformidadDialog(QDialog):
         layout.addLayout(input_layout)
 
         # Botón calcular
-        self.btn_calcular = QPushButton("Calcular Uniformidad")
+        self.btn_calcular = ModernButton("Calcular Uniformidad", color="#424149", hover_color="#475353", pressed_color="#8aa7e5")
         self.btn_calcular.clicked.connect(self.ejecutar_uniformidad)
         layout.addWidget(self.btn_calcular)
 
@@ -85,10 +86,12 @@ class UniformidadDialog(QDialog):
             ["Intervalo", "FO", "FE", "FO-FE", "(FO-FE)²", "(FO-FE)²/FE"]
         )
         self.tabla_frecuencias.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.tabla_frecuencias.setAlternatingRowColors(True)
         layout.addWidget(self.tabla_frecuencias)
 
         # Resultado final
         self.resultado_label = QLabel("")
+        self.resultado_label.setFont(QFont("Segoe UI", 12, QFont.Weight.Bold))
         layout.addWidget(self.resultado_label)
 
     def set_numeros(self, numeros):
@@ -124,6 +127,73 @@ class UniformidadDialog(QDialog):
             f"{'Se acepta H₀' if acepta else 'Se rechaza H₀'}"
         )
 
+# ---------------------- VENTANA DE GRÁFICO ---------------------- #
+class GraficoDialog(QDialog):
+    def __init__(self, valores, tipo, mensaje_oculto):
+        super().__init__()
+        self.setWindowTitle(f"Histograma - {tipo}")
+        self.setMinimumSize(800, 500)
+        self.valores = valores
+        self.tipo = tipo
+        self.mensaje_oculto = mensaje_oculto
+        self.alpha_msg = 0.0
+        self.increasing = True
+        self.init_ui()
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        self.fig, self.ax = plt.subplots(figsize=(7,4))
+        self.canvas = FigureCanvas(self.fig)
+        layout.addWidget(self.canvas)
+
+        # Texto oculto
+        self.hidden_text = self.ax.text(
+            0.5, 0.5, self.mensaje_oculto,
+            fontsize=16, color="red", alpha=0.0,
+            ha="center", va="center", transform=self.ax.transAxes,
+            fontweight="bold"
+        )
+        self.canvas.mpl_connect("button_press_event", self.revelar_mensaje)
+
+        # Dibujar histograma
+        self.ax.clear()
+        self.ax.hist(self.valores, bins=10, color="#6c5ce7", alpha=0.7, edgecolor="white")
+        if self.tipo == "Medias":
+            self.ax.axvline(np.mean(self.valores), color="red", linestyle="--", label=f"Media = {np.mean(self.valores):.4f}")
+            self.ax.legend()
+            self.ax.set_title("Prueba de Media")
+        elif self.tipo == "Varianza":
+            self.ax.set_title(f"Prueba de Varianza (σ² = {np.var(self.valores):.4f})")
+        elif self.tipo == "Uniformidad":
+            self.ax.set_title("Prueba de Uniformidad (Chi-Cuadrado)")
+        self.ax.add_artist(self.hidden_text)
+        self.canvas.draw()
+
+    def revelar_mensaje(self, event=None):
+        self.alpha_msg = 0.0
+        self.increasing = True
+        if hasattr(self, "_parpadeo_timer") and self._parpadeo_timer.isActive():
+            self._parpadeo_timer.stop()
+
+        self._parpadeo_timer = QTimer()
+        self._parpadeo_timer.setInterval(50)
+
+        def parpadeo():
+            if self.increasing:
+                self.alpha_msg += 0.05
+                if self.alpha_msg >= 1.0:
+                    self.alpha_msg = 1.0
+                    self.increasing = False
+            else:
+                self.alpha_msg -= 0.05
+                if self.alpha_msg <= 0.0:
+                    self.alpha_msg = 0.0
+                    self._parpadeo_timer.stop()
+            self.hidden_text.set_alpha(self.alpha_msg)
+            self.canvas.draw()
+
+        self._parpadeo_timer.timeout.connect(parpadeo)
+        self._parpadeo_timer.start()
 
 # ---------------------- TAB PRUEBAS ---------------------- #
 class TabPruebas(QWidget):
@@ -135,47 +205,49 @@ class TabPruebas(QWidget):
         self.resultados_medias = None
         self.resultados_varianza = None
         self.resultados_uniformidad = None
+        self.mensaje_oculto = "🎉 ¡MENSAJE REVELADO! 🎉"
         self.init_ui()
 
     def init_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
+        layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-        # Título
+        # --- Título --- #
         title = QLabel("Pruebas Estadísticas")
         title.setFont(QFont("Segoe UI", 18, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("color: #6c5ce7; margin: 10px 0; padding: 10px;")
+        title.setStyleSheet("color: #6c5ce7; margin-bottom: 10px;")
         layout.addWidget(title)
 
-        # Entrada de datos
-        input_group = QGroupBox("Datos de Números (Manual o Automático)")
+        # --- Entrada de datos --- #
+        input_group = QGroupBox("Datos de Números Pseudoaleatorios")
         input_layout = QVBoxLayout(input_group)
         self.nums_text_edit = QTextEdit()
-        self.nums_text_edit.setPlaceholderText("Ingrese números separados por coma o espacio")
+        self.nums_text_edit.setPlaceholderText("Ingrese números separados por coma")
         self.nums_text_edit.setFixedHeight(100)
         input_layout.addWidget(self.nums_text_edit)
 
-        self.btn_usar_generador = ModernButton("Usar números del generador", color="#00b894", hover_color="#00a382", pressed_color="#008f74")
+        self.btn_usar_generador = ModernButton("Generar números", color="#00b894", hover_color="#00a382", pressed_color="#008f74")
         self.btn_usar_generador.clicked.connect(self.llenar_desde_generador)
         input_layout.addWidget(self.btn_usar_generador)
         layout.addWidget(input_group)
 
-        # Botones
+        # --- Botones de pruebas --- #
         btn_layout = QHBoxLayout()
-        self.btn_prueba_medias = ModernButton("Prueba de Medias", color="#6c5ce7")
-        self.btn_prueba_varianza = ModernButton("Prueba de Varianza", color="#fd79a8")
-        self.btn_uniformidad_directo = ModernButton("Uniformidad χ²", color="#fdcb6e", hover_color="#f0b45e", pressed_color="#e3a44e")
-        self.btn_uniformidad_avanzada = ModernButton("Uniformidad χ² Avanzada", color="#fdcb6e", hover_color="#f0b45e", pressed_color="#e3a44e")
-        self.btn_histograma = ModernButton("Ver Histograma", color="#00cec9", hover_color="#00a6a1", pressed_color="#008d89")
-        self.btn_limpiar = ModernButton("Limpiar Todo", color="#d63031", hover_color="#c23636", pressed_color="#a52727")
+        self.btn_prueba_medias = ModernButton("Prueba de Medias", color="#35343a")
+        self.btn_prueba_varianza = ModernButton("Prueba de Varianza", color="#5C4254")
+        self.btn_uniformidad_directo = ModernButton("Uniformidad χ²", color="#85817e")
+        self.btn_uniformidad_avanzada = ModernButton("Uniformidad χ² Avanzada", color="#3E405F")
+        self.btn_histograma = ModernButton("Mostrar Gráfico", color="#00cec9")
+        self.btn_limpiar = ModernButton("Limpiar Todo", color="#462727")
 
         self.btn_prueba_medias.clicked.connect(self.ejecutar_medias)
         self.btn_prueba_varianza.clicked.connect(self.ejecutar_varianza)
         self.btn_uniformidad_directo.clicked.connect(self.ejecutar_uniformidad_directo)
         self.btn_uniformidad_avanzada.clicked.connect(self.mostrar_ventana_uniformidad)
-        self.btn_histograma.clicked.connect(self.mostrar_histograma)
+        self.btn_histograma.clicked.connect(self.mostrar_histograma_tab)
         self.btn_limpiar.clicked.connect(self.limpiar_todo)
 
         for btn in [self.btn_prueba_medias, self.btn_prueba_varianza, self.btn_uniformidad_directo,
@@ -183,13 +255,13 @@ class TabPruebas(QWidget):
             btn_layout.addWidget(btn)
         layout.addLayout(btn_layout)
 
-        # Separador
+        # --- Separador --- #
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(separator)
 
-        # Tabla de resultados
+        # --- Tabla de resultados --- #
         self.tabla_resultados = QTableWidget()
         self.tabla_resultados.setColumnCount(5)
         self.tabla_resultados.setHorizontalHeaderLabels(["Prueba", "Valor", "Límite Inferior", "Límite Superior", "Resultado"])
@@ -198,21 +270,29 @@ class TabPruebas(QWidget):
         self.tabla_resultados.verticalHeader().setVisible(False)
         layout.addWidget(self.tabla_resultados)
 
-    # ---------------- FUNCIONES ---------------- #
+        # --- Combo de selección de prueba para gráfico --- #
+        combo_layout = QHBoxLayout()
+        self.combo_grafico = QComboBox()
+        self.combo_grafico.addItems(["Medias", "Varianza", "Uniformidad"])
+        combo_layout.addWidget(QLabel("Seleccionar prueba:"))
+        combo_layout.addWidget(self.combo_grafico)
+        layout.addLayout(combo_layout)
+
+    # --- FUNCIONES AUXILIARES --- #
     def obtener_numeros(self):
         texto_manual = self.nums_text_edit.toPlainText().strip()
         if texto_manual:
             try:
                 return [float(x) for x in texto_manual.replace(',', ' ').split()]
             except ValueError:
-                QMessageBox.warning(self, "Error", "Ingrese solo números válidos separados por coma o espacio.")
+                QMessageBox.warning(self, "Error", "Ingrese solo números válidos.")
                 return []
         return self.generadores_tab.obtener_ri_actual()
 
     def llenar_desde_generador(self):
         nums = self.generadores_tab.obtener_ri_actual()
         if not nums:
-            QMessageBox.warning(self, "Advertencia", "No hay números generados. Genere números primero.")
+            QMessageBox.warning(self, "Advertencia", "No hay números generados.")
             return
         self.nums_text_edit.setText(', '.join(f"{n:.6f}" for n in nums))
         QMessageBox.information(self, "Éxito", f"Se han cargado {len(nums)} números del generador.")
@@ -224,7 +304,7 @@ class TabPruebas(QWidget):
         self.resultados_varianza = None
         self.resultados_uniformidad = None
         self.enviar_resultados()
-        QMessageBox.information(self, "Limpiar", "Todos los campos y resultados han sido limpiados.")
+        QMessageBox.information(self, "Limpiar", "Campos y resultados limpiados.")
 
     def actualizar_tabla(self, prueba, valor, limite_inf, limite_sup, acepta):
         row = self.tabla_resultados.rowCount()
@@ -239,6 +319,7 @@ class TabPruebas(QWidget):
         item.setForeground(QColor("#155724") if acepta else QColor("#721c24"))
         self.tabla_resultados.setItem(row, 4, item)
 
+    # --- FUNCIONES DE PRUEBAS --- #
     def ejecutar_medias(self):
         nums = self.obtener_numeros()
         if not nums: return
@@ -306,35 +387,23 @@ class TabPruebas(QWidget):
         if resultados_para_variables:
             self.resultados_generados.emit(resultados_para_variables)
 
-    def mostrar_histograma(self):
+    # --- FUNCIONES DE GRÁFICO --- #
+    def mostrar_histograma_tab(self):
         nums = self.obtener_numeros()
         if not nums:
             QMessageBox.warning(self, "Advertencia", "No hay números para mostrar.")
             return
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Histograma de Distribución")
-        dialog.setMinimumSize(700, 500)
-        layout = QVBoxLayout(dialog)
+        tipo = self.combo_grafico.currentText()
+        valores = []
+        if tipo == "Medias" and self.resultados_medias:
+            valores = [self.resultados_medias["media"]]
+        elif tipo == "Varianza" and self.resultados_varianza:
+            valores = [self.resultados_varianza["varianza"]]
+        elif tipo == "Uniformidad" and self.resultados_uniformidad:
+            valores = [self.resultados_uniformidad["chi_cuadrado"]]
+        else:
+            valores = nums
 
-        fig, ax = plt.subplots(figsize=(8,5))
-        canvas = FigureCanvas(fig)
-        layout.addWidget(canvas)
-
-        ax.hist(nums, bins=10, color="#6c5ce7", edgecolor="white", alpha=0.8)
-        ax.set_title("Distribución de Números Pseudoaleatorios", fontsize=14, fontweight='bold')
-        ax.set_xlabel("Valor de Ri", fontweight='bold')
-        ax.set_ylabel("Frecuencia", fontweight='bold')
-        ax.grid(True, alpha=0.3)
-
-        mean_val = sum(nums)/len(nums)
-        ax.axvline(mean_val, color="#fd79a8", linestyle='--', linewidth=2, label=f'Media: {mean_val:.4f}')
-        ax.legend()
-        ax.spines['top'].set_visible(False)
-        ax.spines['right'].set_visible(False)
-
-        stats_text = f"Números: {len(nums)}\nMedia: {mean_val:.6f}\nMín: {min(nums):.6f}\nMáx: {max(nums):.6f}"
-        ax.text(0.02,0.98, stats_text, transform=ax.transAxes, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-
-        canvas.draw()
+        dialog = GraficoDialog(valores, tipo, self.mensaje_oculto)
         dialog.exec()

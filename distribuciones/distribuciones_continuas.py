@@ -1,80 +1,51 @@
 import numpy as np
-from math import exp, log, sqrt, pi, gamma as gamma_func
+from scipy import stats
+import math
 
-class DistribucionesContinuas:
-    def __init__(self, generador_ri):
-        self.generador_ri = generador_ri
-    
-    def uniforme(self, a, b, n=1):
-        """Distribución Uniforme Continua U(a,b)"""
-        ri_df = self.generador_ri.generar(n)
-        variables = [a + (b - a) * ri for ri in ri_df['Ri']]
-        
-        return {
-            'variables': variables,
-            'numeros_aleatorios': ri_df,
-            'parametros': f'U({a},{b})',
-            'media_teorica': (a + b) / 2,
-            'varianza_teorica': (b - a)**2 / 12
-        }
-    
-    def exponencial(self, lambd, n=1):
-        """Distribución Exponencial(λ)"""
-        ri_df = self.generador_ri.generar(n)
-        variables = [- (1 / lambd) * log(1 - ri) for ri in ri_df['Ri']]
-        
-        return {
-            'variables': variables,
-            'numeros_aleatorios': ri_df,
-            'parametros': f'Exp(λ={lambd})',
-            'media_teorica': 1 / lambd,
-            'varianza_teorica': 1 / (lambd**2)
-        }
-    
-    def normal(self, mu, sigma, n=1):
-        """Distribución Normal N(μ,σ) usando Box-Muller"""
-        ri_df = self.generador_ri.generar(2 * n)
-        
-        variables = []
-        for i in range(0, len(ri_df), 2):
-            if i + 1 < len(ri_df):
-                r1, r2 = ri_df.iloc[i]['Ri'], ri_df.iloc[i+1]['Ri']
-                z0 = sqrt(-2 * log(r1)) * np.cos(2 * pi * r2)
-                variables.append(mu + sigma * z0)
-        
-        return {
-            'variables': variables[:n],
-            'numeros_aleatorios': ri_df,
-            'parametros': f'N(μ={mu},σ={sigma})',
-            'media_teorica': mu,
-            'varianza_teorica': sigma**2
-        }
-    
-    def gamma(self, alpha, beta, n=1):
-        """Distribución Gamma(α,β)"""
-        ri_df = self.generador_ri.generar(n)
-        variables = [-beta/alpha * log((1-ri)/(1+ri)) for ri in ri_df['Ri']]
-        
-        return {
-            'variables': variables,
-            'numeros_aleatorios': ri_df,
-            'parametros': f'Gamma(α={alpha},β={beta})',
-            'media_teorica': alpha * beta,
-            'varianza_teorica': alpha * (beta**2)
-        }
-    
-    def weibull(self, alpha, beta, y=0, n=1):
-        """Distribución Weibull(α,β,γ)"""
-        ri_df = self.generador_ri.generar(n)
-        variables = [y + beta * (-log(1 - ri))**(1/alpha) for ri in ri_df['Ri']]
-        
-        media_teorica = y + beta * gamma_func(1 + 1/alpha)
-        varianza_teorica = beta**2 * (gamma_func(1 + 2/alpha) - gamma_func(1 + 1/alpha)**2)
-        
-        return {
-            'variables': variables,
-            'numeros_aleatorios': ri_df,
-            'parametros': f'Weibull(α={alpha},β={beta},γ={y})',
-            'media_teorica': media_teorica,
-            'varianza_teorica': varianza_teorica
-        }
+def distribucion_uniforme_pdf(x, a, b):
+    """Función de densidad de probabilidad para distribución uniforme"""
+    return np.where((x >= a) & (x <= b), 1/(b-a), 0)
+
+def distribucion_uniforme_cdf(x, a, b):
+    """Función de distribución acumulativa para distribución uniforme"""
+    return np.where(x < a, 0, np.where(x <= b, (x-a)/(b-a), 1))
+
+def distribucion_erlang_pdf(x, k, lam):
+    """Función de densidad para distribución Erlang (caso especial de Gamma)"""
+    return stats.gamma.pdf(x, k, scale=1/lam)
+
+def distribucion_erlang_cdf(x, k, lam):
+    """Función de distribución para distribución Erlang"""
+    return stats.gamma.cdf(x, k, scale=1/lam)
+
+def distribucion_exponencial_pdf(x, lam):
+    """Función de densidad para distribución exponencial"""
+    return lam * np.exp(-lam * x)
+
+def distribucion_exponencial_cdf(x, lam):
+    """Función de distribución para distribución exponencial"""
+    return 1 - np.exp(-lam * x)
+
+def distribucion_gamma_pdf(x, alpha, beta):
+    """Función de densidad para distribución gamma"""
+    return stats.gamma.pdf(x, alpha, scale=beta)
+
+def distribucion_gamma_cdf(x, alpha, beta):
+    """Función de distribución para distribución gamma"""
+    return stats.gamma.cdf(x, alpha, scale=beta)
+
+def distribucion_normal_pdf(x, mu, sigma):
+    """Función de densidad para distribución normal"""
+    return stats.norm.pdf(x, mu, sigma)
+
+def distribucion_normal_cdf(x, mu, sigma):
+    """Función de distribución para distribución normal"""
+    return stats.norm.cdf(x, mu, sigma)
+
+def distribucion_weibull_pdf(x, alpha, beta, gamma=0):
+    """Función de densidad para distribución Weibull"""
+    return stats.weibull_min.pdf(x - gamma, alpha, scale=beta)
+
+def distribucion_weibull_cdf(x, alpha, beta, gamma=0):
+    """Función de distribución para distribución Weibull"""
+    return stats.weibull_min.cdf(x - gamma, alpha, scale=beta)
